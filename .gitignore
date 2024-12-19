@@ -1,3 +1,5 @@
 *.pdf
 *.exe
 basesim
+.backup
+.vscode

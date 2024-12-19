@@ -1,6 +1,7 @@
 #include "pipe.h"
 #include "shell.h"
 #include "mips.h"
+#include "cache.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -24,6 +25,8 @@ Pipe_State pipe;
 
 void pipe_init()
 {
+    icache_init();
+    dcache_init();
     memset(&pipe, 0, sizeof(Pipe_State));
     pipe.PC = 0x00400000;
 }
@@ -52,6 +55,7 @@ void pipe_cycle()
 #endif
 
         pipe.PC = pipe.branch_dest;
+        pipe.fetch_stall = 0;
 
         if (pipe.branch_flush >= 2) {
             if (pipe.decode_op) free(pipe.decode_op);
@@ -116,7 +120,15 @@ void pipe_stage_wb()
     if (op->opcode == OP_SPECIAL && op->subop == SUBOP_SYSCALL) {
         if (op->reg_src1_value == 0xA) {
             pipe.PC = op->pc; /* fetch will do pc += 4, then we stop with correct PC */
+            pipe.fetch_stall = -1;
             RUN_BIT = 0;
+
+            uint32_t sum = inst_cache.stat_hits + inst_cache.stat_misses;
+            printf("ICacheHitRatio: %0.3f\n", 
+                ((float) inst_cache.stat_hits) / (sum ? sum : 1));
+            sum = data_cache.stat_hits + data_cache.stat_misses;
+            printf("DCacheHitRatio: %0.3f\n\n", 
+                ((float) data_cache.stat_hits) / (sum ? sum : 1));
         }
     }
 
@@ -137,7 +149,11 @@ void pipe_stage_mem()
 
     uint32_t val = 0;
     if (op->is_mem)
-        val = mem_read_32(op->mem_addr & ~3);
+        val = dcache_read_32(op->mem_addr & ~3);
+    
+    /* stall until the end of memory access */
+    if (pipe.mem_stall > 0)
+        return;
 
     switch (op->opcode) {
         case OP_LW:
@@ -194,7 +210,7 @@ void pipe_stage_mem()
                 case 3: val = (val & 0x00FFFFFF) | ((op->mem_value & 0xFF) << 24); break;
             }
 
-            mem_write_32(op->mem_addr & ~3, val);
+            dcache_write_32(op->mem_addr & ~3, val);
             break;
 
         case OP_SH:
@@ -209,12 +225,12 @@ void pipe_stage_mem()
             printf("new word %08x\n", val);
 #endif
 
-            mem_write_32(op->mem_addr & ~3, val);
+            dcache_write_32(op->mem_addr & ~3, val);
             break;
 
         case OP_SW:
             val = op->mem_value;
-            mem_write_32(op->mem_addr & ~3, val);
+            dcache_write_32(op->mem_addr & ~3, val);
             break;
     }
 
@@ -662,12 +678,17 @@ void pipe_stage_fetch()
     if (pipe.decode_op != NULL)
         return;
 
+    uint32_t inst = icache_read_32(pipe.PC);
+
+    if (pipe.fetch_stall > 0)
+        return;    
+
     /* Allocate an op and send it down the pipeline. */
     Pipe_Op *op = malloc(sizeof(Pipe_Op));
     memset(op, 0, sizeof(Pipe_Op));
     op->reg_src1 = op->reg_src2 = op->reg_dst = -1;
 
-    op->instruction = mem_read_32(pipe.PC);
+    op->instruction = inst;    
     op->pc = pipe.PC;
     pipe.decode_op = op;
 

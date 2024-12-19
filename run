@@ -18,6 +18,9 @@ bold="\033[1m"
 green="\033[0;32m"
 red="\033[0;31m"
 normal="\033[0m"
+cyan = "\033[0;36m"
+
+hit_out = []
 
 def main():
     all_inputs = glob.glob("inputs/*/*.x")
@@ -48,6 +51,13 @@ def main():
             if (r1 != s1 and nocheck == 0):
                 print("  " + red + "ERROR" + normal)
                 error = 1
+        
+        print()
+        for l in hit_out:
+            print(cyan +"  " + l)
+        hit_out.clear()
+        print(normal)
+
         if error == 0:
             print("  " + green + "REGISTER CONTENTS OK" + normal)
         else: error_sum += 1
@@ -78,12 +88,17 @@ def run(i):
     return filter_stats(r), filter_stats(s)
 
 def filter_stats(out):
+    global hit_out
     lines = out.split("\n".encode())
     regex = re.compile("^(HI:)|(LO:)|(R\d+)|(Cycles)|(Fetched\w+)|(Retired\w+)|(IPC)|(Flushes).*$")
+    regex2 = re.compile("^(ICacheHitRatio)|(DCacheHitRatio).*$")
     out = []
     for l in lines:
         if regex.match(l.decode()):
           out.append(l.decode())
+        if regex2.match(l.decode()):
+          hit_out.append(l.decode())
+
     return "\n".join(out)
 
 if __name__ == "__main__":

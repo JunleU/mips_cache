@@ -82,6 +82,10 @@ typedef struct Pipe_State {
 
     /* place other information here as necessary */
 
+    /* memory access stall info */
+    int mem_stall; /* number of remaining cycles until the end of memory access */
+    int fetch_stall;
+
 } Pipe_State;
 
 /* global variable -- pipeline state */
